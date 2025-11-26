@@ -1,0 +1,956 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agenda de Planejamento Local – SES/MG</title>
+    <!-- Carregando o TailwindCSS para um design moderno -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Supabase JS SDK -->
+    <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+    <style>
+        /* Estilos personalizados */
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        /* Animação para mensagens */
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateX(100%);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+        /* Estilo para o modal (dialog) */
+        dialog {
+            position: fixed !important;
+            top: 50% !important;
+            left: 50% !important;
+            transform: translate(-50%, -50%) !important;
+            z-index: 9999 !important;
+            background: white !important;
+            border: 3px solid #3B82F6 !important;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5) !important;
+            margin: 0 !important;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+        dialog[open] {
+            display: block !important;
+        }
+        dialog::backdrop {
+            background: rgba(0, 0, 0, 0.7) !important;
+            z-index: 9998 !important;
+            position: fixed !important;
+            top: 0 !important;
+            left: 0 !important;
+            width: 100% !important;
+            height: 100% !important;
+        }
+        /* Para destacar o dia da semana */
+        .calendar-header {
+            font-size: 0.7rem;
+            font-weight: 600;
+            color: #4B5563; /* text-gray-600 */
+            text-align: center;
+            padding: 0.25rem;
+        }
+        /* Célula base do calendário */
+        .calendar-cell {
+            position: relative;
+            min-height: 60px; /* Altura reduzida para caber em uma tela */
+            border: 1px solid #E5E7EB; /* border-gray-200 */
+            padding: 0.25rem;
+            font-size: 0.75rem;
+            transition: all 0.2s ease;
+        }
+        .calendar-cell .date-number {
+            font-weight: 600;
+        }
+        /* Estados das células */
+        .cell-available {
+            background-color: #EFF6FF; /* bg-blue-100 */
+            cursor: pointer;
+        }
+        .cell-available:hover {
+            background-color: #DBEAFE; /* bg-blue-200 */
+        }
+        .cell-weekend {
+            background-color: #FEF9C3; /* bg-yellow-100 */
+            color: #9CA3AF; /* text-gray-400 */
+        }
+        .cell-blocked-monday {
+            background-color: #E5E7EB; /* bg-gray-200 */
+            color: #6B7280; /* text-gray-500 */
+            cursor: not-allowed;
+        }
+        .cell-disabled {
+            background-color: #F3F4F6; /* bg-gray-100 */
+            color: #D1D5DB; /* text-gray-300 */
+            cursor: not-allowed;
+        }
+        .cell-selected {
+            background-color: #A7F3D0; /* bg-green-200 */
+            border-color: #10B981; /* border-green-500 */
+            box-shadow: 0 0 0 2px #10B981; /* ring-2 ring-green-500 */
+            z-index: 10;
+        }
+        .cell-booked-event {
+            background-color: #EF4444; /* bg-red-500 */
+            color: white;
+            cursor: not-allowed;
+        }
+        .cell-booked-travel {
+            background-color: #FEE2E2; /* bg-red-100 - vermelho mais claro */
+            color: #DC2626; /* text-red-600 */
+            cursor: not-allowed;
+        }
+        .cell-holiday {
+            background-color: #FEF3C7; /* bg-amber-100 */
+            color: #92400E; /* text-amber-800 */
+            cursor: not-allowed;
+            border: 1px dashed #F59E0B;
+        }
+        .cell-content {
+            font-size: 0.75rem; /* text-xs */
+            word-wrap: break-word;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 p-2 md:p-4">
+
+    <div class="max-w-7xl mx-auto bg-white rounded-xl shadow-xl overflow-hidden border border-slate-200">
+        <!-- Cabeçalho Compacto -->
+        <div class="bg-gradient-to-r from-sky-600 via-blue-600 to-blue-700 px-4 py-3 text-white">
+            <div class="flex items-center gap-2">
+                <div class="bg-white/20 backdrop-blur-sm rounded-lg p-2">
+                    <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z" clip-rule="evenodd"/>
+                    </svg>
+                </div>
+                <div>
+                    <h1 class="text-lg font-semibold">Agenda de Planejamento Local - NSDIGI</h1>
+                    <p class="text-xs text-blue-100">SES/MG • 19/01/2026 a 08/05/2026</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="px-4 py-3 bg-slate-50">
+            <!-- Layout em 2 colunas: Info à esquerda, Calendário à direita -->
+            <div class="grid grid-cols-1 lg:grid-cols-[400px_1fr] gap-4">
+                <!-- Coluna Esquerda: Informações -->
+                <div class="space-y-3">
+                    <!-- Passo a passo compacto -->
+                    <div class="bg-white rounded-lg border border-slate-200 shadow-sm p-3">
+                        <h3 class="text-xs font-semibold text-slate-700 uppercase mb-2">Como agendar</h3>
+                        <div class="space-y-2">
+                            <div class="flex items-center gap-2 text-xs">
+                                <span class="h-5 w-5 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-xs">1</span>
+                                <span class="text-slate-700">Clique nos dias disponíveis (em azul claro)</span>
+                            </div>
+                            <div class="flex items-center gap-2 text-xs">
+                                <span class="h-5 w-5 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600 font-bold text-xs">2</span>
+                                <span class="text-slate-700">Preencha o formulário com as informações do evento</span>
+                            </div>
+                            <div class="flex items-center gap-2 text-xs">
+                                <span class="h-5 w-5 rounded-full bg-purple-100 flex items-center justify-center text-purple-600 font-bold text-xs">3</span>
+                                <span class="text-slate-700">Confirme o agendamento</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Legenda compacta -->
+                    <div class="bg-white rounded-lg border border-slate-200 shadow-sm p-3">
+                        <h3 class="text-xs font-semibold text-slate-700 uppercase mb-2">Cores do calendário</h3>
+                        <div class="space-y-1.5 text-xs">
+                            <div class="flex items-center gap-1.5">
+                                <span class="h-3 w-3 rounded bg-blue-400"></span>
+                                <span class="text-slate-600"><strong>Disponível</strong> - Dias liberados para agendamento</span>
+                            </div>
+                            <div class="flex items-center gap-1.5">
+                                <span class="h-3 w-3 rounded bg-amber-300"></span>
+                                <span class="text-slate-600"><strong>Fim de semana</strong> - Não disponível</span>
+                            </div>
+                            <div class="flex items-center gap-1.5">
+                                <span class="h-3 w-3 rounded bg-gray-300"></span>
+                                <span class="text-slate-600"><strong>Segunda bloqueada</strong> - Reservado para planejamento interno</span>
+                            </div>
+                            <div class="flex items-center gap-1.5">
+                                <span class="h-3 w-3 rounded bg-purple-400"></span>
+                                <span class="text-slate-600"><strong>Bloqueado</strong> - Data já reservada</span>
+                            </div>
+                            <div class="flex items-center gap-1.5">
+                                <span class="h-3 w-3 rounded bg-rose-500"></span>
+                                <span class="text-slate-600"><strong>Agendado</strong> - Seu evento confirmado</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Avisos compactos -->
+                    <details open class="bg-amber-50 rounded-lg border border-amber-300 shadow-sm">
+                        <summary class="cursor-pointer px-3 py-2 text-xs font-semibold text-amber-800 flex items-center gap-1.5 hover:bg-amber-100">
+                            <svg class="w-4 h-4 text-amber-600" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
+                            </svg>
+                            📋 Orientações importantes
+                        </summary>
+                        <div class="px-3 pb-3 pt-2 space-y-2 text-xs text-slate-700">
+                            <div>
+                                <p class="font-semibold text-amber-800 mb-1.5">Antes de agendar:</p>
+                                <div class="space-y-1.5 ml-2">
+                                    <div class="flex gap-2 items-start">
+                                        <span class="h-4 w-4 rounded-full bg-amber-500 flex items-center justify-center text-white font-bold text-xs flex-shrink-0 mt-0.5">•</span>
+                                        <p>Os agendamentos devem ser feitos com pelo menos <strong>20 dias corridos de antecedência</strong>.</p>
+                                    </div>
+                                    <div class="flex gap-2 items-start">
+                                        <span class="h-4 w-4 rounded-full bg-amber-500 flex items-center justify-center text-white font-bold text-xs flex-shrink-0 mt-0.5">•</span>
+                                        <p>Quando você agendar um dia, o sistema bloqueará automaticamente o <strong>dia anterior e o dia posterior</strong>. Esse bloqueio é necessário para garantir o deslocamento da equipe.</p>
+                                    </div>
+                                    <div class="flex gap-2 items-start">
+                                        <span class="h-4 w-4 rounded-full bg-amber-500 flex items-center justify-center text-white font-bold text-xs flex-shrink-0 mt-0.5">•</span>
+                                        <p>O agendamento é feito por <strong>Unidade Regional</strong>. Caso sua Unidade Regional precise alterar a data do evento agendado, a mudança só pode ser feita mediante solicitação ao email do NSDIGI: <strong>saudedigital@saude.mg.gov.br</strong></p>
+                                    </div>
+                                    <div class="flex gap-2 items-start">
+                                        <span class="h-4 w-4 rounded-full bg-amber-500 flex items-center justify-center text-white font-bold text-xs flex-shrink-0 mt-0.5">•</span>
+                                        <p><strong>Limite de participantes:</strong> Cada município deve indicar 3 pessoas de referência técnica de cada eixo. Antes de agendar, some 3 pessoas para cada município da sua Unidade Regional. Se o total ultrapassar 120 pessoas, você precisará agendar dois dias consecutivos e dividir os participantes.</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="pt-1 border-t border-amber-200">
+                                <p class="font-semibold text-amber-800 mb-1.5">Após o agendamento:</p>
+                                <div class="flex gap-2 items-start ml-2">
+                                    <span class="h-4 w-4 rounded-full bg-blue-500 flex items-center justify-center text-white font-bold text-xs flex-shrink-0 mt-0.5">ℹ</span>
+                                    <p>Iremos encaminhar em até <strong>5 dias úteis</strong> a confirmação via <strong>Microsoft Teams</strong>.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </details>
+                </div>
+
+                <!-- Coluna Direita: Calendário -->
+                <div class="bg-white rounded-lg border border-slate-200 shadow-sm">
+                    <!-- Controles do Calendário -->
+                    <div class="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
+                        <h2 id="current-month-year" class="text-lg font-semibold text-slate-900"></h2>
+                        <div class="flex items-center gap-2">
+                            <button id="prev-month" class="inline-flex items-center gap-1.5 rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:opacity-40 disabled:cursor-not-allowed">
+                                <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5"/>
+                                </svg>
+                                Anterior
+                            </button>
+                            <button id="next-month" class="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-blue-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 disabled:opacity-40 disabled:cursor-not-allowed">
+                                Próximo
+                                <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- O Calendário -->
+                    <div id="calendar-container" class="p-3">
+                        <!-- Os dias da semana (header) -->
+                        <div class="grid grid-cols-7 gap-1 mb-1">
+                            <div class="calendar-header text-xs">Dom</div>
+                            <div class="calendar-header text-xs">Seg</div>
+                            <div class="calendar-header text-xs">Ter</div>
+                            <div class="calendar-header text-xs">Qua</div>
+                            <div class="calendar-header text-xs">Qui</div>
+                            <div class="calendar-header text-xs">Sex</div>
+                            <div class="calendar-header text-xs">Sáb</div>
+                        </div>
+                        <!-- A grade de dias será inserida aqui -->
+                        <div id="calendar-grid" class="grid grid-cols-7 gap-1">
+                            <!-- Células do calendário geradas por JS -->
+                        </div>
+                    </div>
+
+                    <!-- Botão flutuante para agendar -->
+                    <div id="booking-controls" class="px-4 py-3 bg-slate-50 border-t border-slate-200 text-right hidden">
+                        <div class="flex items-center justify-end gap-2">
+                            <span id="selected-count" class="text-xs text-slate-600"></span>
+                            <button id="clear-selection" class="px-3 py-1.5 bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold hover:bg-slate-300 transition">Limpar</button>
+                            <button id="open-booking-modal" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-semibold hover:bg-blue-700 transition">Agendar</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Agendamento (usando <dialog>) -->
+    <dialog id="booking-modal" class="rounded-lg shadow-xl w-full max-w-lg p-0 bg-white">
+        <!-- Container de mensagens DENTRO do dialog (top layer) -->
+        <div id="modal-message-container" class="fixed top-5 right-5 left-5 md:left-auto" style="z-index: 10; pointer-events: none;">
+            <!-- Mensagens dentro do modal aparecerão aqui -->
+        </div>
+        
+        <form id="booking-form" class="p-6">
+            <h3 class="text-lg font-semibold mb-4">Agendar Evento</h3>
+            
+            <div class="mb-4">
+                <label for="solicitante" class="block text-sm font-medium text-gray-700">Nome Completo do Solicitante <span class="text-red-500">*</span></label>
+                <input type="text" id="solicitante" name="solicitante" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500" required>
+            </div>
+            
+            <div class="mb-4">
+                <label for="email" class="block text-sm font-medium text-gray-700">E-mail do Solicitante <span class="text-red-500">*</span></label>
+                <input type="email" id="email" name="email" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500" required>
+            </div>
+
+            <div class="mb-4">
+                <label for="urs" class="block text-sm font-medium text-gray-700">Unidade Regional de Saúde (URS) <span class="text-red-500">*</span></label>
+                <select id="urs" name="urs" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500" required>
+                    <option value="" disabled selected>Selecione uma URS</option>
+                    <!-- Opções de URS serão preenchidas por JS -->
+                </select>
+            </div>
+
+            <div class="mb-4">
+                <label for="cidade" class="block text-sm font-medium text-gray-700">Município de realização <span class="text-red-500">*</span></label>
+                <input type="text" id="cidade" name="cidade" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500" required>
+            </div>
+
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-gray-700">Data(s) Selecionada(s)</label>
+                <div id="dates-to-book" class="mt-1 p-2 bg-gray-100 rounded-md text-sm text-gray-800">
+                    <!-- Datas a agendar serão listadas aqui -->
+                </div>
+            </div>
+
+            <div class="mb-4">
+                <label for="observacoes" class="block text-sm font-medium text-gray-700">Observações do Solicitante</label>
+                <textarea id="observacoes" name="observacoes" rows="3" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"></textarea>
+            </div>
+
+            <div class="flex justify-end gap-3 mt-6">
+                <button type="button" id="cancel-booking" class="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300 transition-colors">Cancelar</button>
+                <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">Enviar Solicitação</button>
+            </div>
+        </form>
+    </dialog>
+
+    <!-- Caixa de Mensagem (para erros e sucesso) -->
+    <div id="message-box-container" class="fixed top-5 right-5" style="z-index: 999999 !important; pointer-events: none;">
+        <!-- Mensagens serão injetadas aqui -->
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+
+            // --- CONSTANTES E CONFIGURAÇÕES ---
+            
+            // Configurações do Supabase (preencha com os valores do seu projeto)
+            const SUPABASE_URL = 'https://cwddkziwhvvlyfzgqkad.supabase.co';
+            const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN3ZGRreml3aHZ2bHlmemdxa2FkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI4MzYzMDYsImV4cCI6MjA3ODQxMjMwNn0.HqZFMYv5T5lHSLyo-CDbLfFZMYkfQ86a17SgDhRLmAA';
+            const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+            // Período de planejamento (conforme prompt)
+            const PERIODO_INICIO = new Date('2026-01-19T12:00:00Z');
+            const PERIODO_FIM = new Date('2026-05-08T12:00:00Z');
+            
+            // Regra dos 20 dias de antecedência
+            const MIN_ANTECEDENCIA_DIAS = 20;
+            
+            // Data "hoje" baseada no acesso real do usuário (normalizada em UTC para evitar fuso)
+            const TODAY = new Date();
+            const TODAY_UTC = new Date(Date.UTC(
+                TODAY.getUTCFullYear(),
+                TODAY.getUTCMonth(),
+                TODAY.getUTCDate(),
+                12
+            ));
+            
+            // Data mínima para agendamento (Hoje + 20 dias)
+            const MIN_BOOKING_DATE = addDays(TODAY_UTC, MIN_ANTECEDENCIA_DIAS);
+
+            // Lista de URS (conforme prompt)
+            const URS_LIST = [
+                "URS Alfenas", "URS Barbacena", "URS Belo Horizonte", "URS Coronel Fabriciano",
+                "URS Diamantina", "URS Divinópolis", "URS Governador Valadares", "URS Itabira",
+                "URS Itaobim", "URS Januária", "URS Juiz de Fora", "URS Leopoldina",
+                "URS Manhuaçu", "URS Montes Claros", "URS Muriaé", "URS Oliveira",
+                "URS Ouro Preto", "URS Passos", "URS Patos de Minas", "URS Pedra Azul",
+                "URS Pirapora", "URS Ponte Nova", "URS Pouso Alegre", "URS Sete Lagoas",
+                "URS São João del-Rei", "URS Teófilo Otoni", "URS Ubá", "URS Uberaba", "URS Uberlândia",
+                "URS Varginha"
+            ];
+
+            // Datas especiais (feriados/pontos facultativos) que não podem ser agendadas
+            const HOLIDAYS = {
+                '2026-02-16': 'Segunda-feira de Carnaval (ponto facultativo)',
+                '2026-02-17': 'Carnaval (ponto facultativo)',
+                '2026-02-18': 'Quarta-feira de Cinzas (até 14h)',
+                '2026-04-03': 'Sexta-feira Santa (feriado nacional)',
+                '2026-04-21': 'Tiradentes (feriado nacional)',
+                '2026-05-01': 'Dia do Trabalhador (feriado nacional)'
+            };
+            const HOLIDAY_SET = new Set(Object.keys(HOLIDAYS));
+
+            // --- ESTADO DA APLICAÇÃO ---
+            let currentViewDate = new Date(PERIODO_INICIO.getTime()); // Data para controlar mês/ano visível
+            let selectedDates = new Set(); // Datas selecionadas (formato 'YYYY-MM-DD')
+            let events = {}; // Armazena os agendamentos confirmados
+
+            // --- ELEMENTOS DO DOM ---
+            const calendarGrid = document.getElementById('calendar-grid');
+            const currentMonthYearEl = document.getElementById('current-month-year');
+            const prevMonthBtn = document.getElementById('prev-month');
+            const nextMonthBtn = document.getElementById('next-month');
+            const bookingControls = document.getElementById('booking-controls');
+            const selectedCountEl = document.getElementById('selected-count');
+            const clearSelectionBtn = document.getElementById('clear-selection');
+            const openBookingModalBtn = document.getElementById('open-booking-modal');
+            const bookingModal = document.getElementById('booking-modal');
+            const bookingForm = document.getElementById('booking-form');
+            const cancelBookingBtn = document.getElementById('cancel-booking');
+            const datesToBookEl = document.getElementById('dates-to-book');
+            const ursSelect = document.getElementById('urs');
+
+            // --- FUNÇÕES HELPER (Auxiliares) ---
+
+            // Adiciona dias a uma data (considerando UTC para evitar problemas de fuso)
+            function addDays(date, days) {
+                const result = new Date(date);
+                result.setUTCDate(result.getUTCDate() + days);
+                return result;
+            }
+
+            // Formata a data para 'YYYY-MM-DD' (chave do nosso estado)
+            function formatDateISO(date) {
+                return date.toISOString().split('T')[0];
+            }
+
+            // Formata a data para 'DD/MM/YYYY' (exibição)
+            function formatDateBR(date) {
+                return date.toLocaleDateString('pt-BR', { timeZone: 'UTC' });
+            }
+
+            // Parse de 'YYYY-MM-DD' para objeto Date (em UTC)
+            function parseDateISO(dateString) {
+                const [year, month, day] = dateString.split('-').map(Number);
+                return new Date(Date.UTC(year, month - 1, day, 12)); // 12:00 UTC
+            }
+
+            // Popula a lista de URS no formulário
+            function populateURS() {
+                URS_LIST.forEach(urs => {
+                    const option = document.createElement('option');
+                    option.value = urs;
+                    option.textContent = urs;
+                    ursSelect.appendChild(option);
+                });
+            }
+
+            function isHoliday(dateString) {
+                return HOLIDAY_SET.has(dateString);
+            }
+
+            // Exibe mensagem de sucesso ou erro
+            function showMessage(type, title, message) {
+                const bgColor = type === 'success' 
+                    ? 'bg-green-500 border-4 border-green-600 text-white' 
+                    : 'bg-red-500 border-4 border-red-600 text-white';
+                const messageId = `msg-${Date.now()}`;
+                
+                const messageEl = document.createElement('div');
+                messageEl.id = messageId;
+                messageEl.className = `p-4 rounded-lg shadow-2xl mb-3 ${bgColor} transition-all duration-300 animate-[slideIn_0.3s_ease-out]`;
+                messageEl.style.cssText = 'position: relative !important; pointer-events: auto !important;';
+                messageEl.innerHTML = `
+                    <div class="flex items-start gap-3">
+                        <div class="flex-shrink-0">
+                            ${type === 'success' 
+                                ? '<svg class="w-6 h-6" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>'
+                                : '<svg class="w-6 h-6" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"/></svg>'
+                            }
+                        </div>
+                        <div class="flex-1">
+                            <p class="font-bold text-base mb-0.5">${title}</p>
+                            <p class="text-sm font-medium leading-snug">${message}</p>
+                        </div>
+                        <button onclick="document.getElementById('${messageId}')?.remove()" class="flex-shrink-0 ml-2 hover:opacity-70 transition-opacity">
+                            <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
+                        </button>
+                    </div>
+                `;
+                
+                // Determina se o modal está aberto
+                const isModalOpen = bookingModal.open;
+                const container = isModalOpen 
+                    ? document.getElementById('modal-message-container')
+                    : document.getElementById('message-box-container');
+                
+                container.appendChild(messageEl);
+
+                // Auto-remove a mensagem após 3 segundos
+                setTimeout(() => {
+                    const msg = document.getElementById(messageId);
+                    if (msg) {
+                        msg.style.opacity = '0';
+                        msg.style.transform = 'translateX(100%)';
+                        setTimeout(() => msg.remove(), 300);
+                    }
+                }, 3000);
+            }
+
+
+            // --- LÓGICA DO CALENDÁRIO ---
+
+            function renderCalendar() {
+                calendarGrid.innerHTML = '';
+                const year = currentViewDate.getUTCFullYear();
+                const month = currentViewDate.getUTCMonth(); // 0-11
+
+                // Título do mês/ano com inicial maiúscula
+                const monthYear = currentViewDate.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+                currentMonthYearEl.textContent = monthYear.charAt(0).toUpperCase() + monthYear.slice(1);
+
+                // Primeiro dia do mês e o dia da semana (0=Domingo)
+                const firstDayOfMonth = new Date(Date.UTC(year, month, 1));
+                const startDayOfWeek = firstDayOfMonth.getUTCDay();
+
+                // Último dia do mês
+                const lastDayOfMonth = new Date(Date.UTC(year, month + 1, 0));
+                
+                // Cria células vazias para preencher antes do dia 1
+                for (let i = 0; i < startDayOfWeek; i++) {
+                    calendarGrid.appendChild(createEmptyCell());
+                }
+
+                // Cria células para cada dia do mês
+                for (let day = 1; day <= lastDayOfMonth.getUTCDate(); day++) {
+                    const date = new Date(Date.UTC(year, month, day, 12));
+                    calendarGrid.appendChild(createDateCell(date));
+                }
+
+                // Atualiza estado dos botões de navegação
+                updateNavButtons();
+            }
+
+            function createEmptyCell() {
+                const cell = document.createElement('div');
+                cell.className = 'calendar-cell cell-disabled';
+                return cell;
+            }
+
+            function createDateCell(date) {
+                const cell = document.createElement('div');
+                const dateString = formatDateISO(date);
+                let classes = 'calendar-cell';
+                let content = '';
+                let isClickable = false;
+
+                const dayOfWeek = date.getUTCDay();
+                const isWeekend = (dayOfWeek === 0 || dayOfWeek === 6);
+                const isBlockedMonday = (dayOfWeek === 1);
+                
+                // 1. Verifica se a data está agendada
+                if (events[dateString]) {
+                    const event = events[dateString];
+                    if (event.type === 'event') {
+                        classes += ' cell-booked-event';
+                        content = `
+                            <strong class="block">${event.urs}</strong>
+                            <span class="cell-content">${event.solicitante}</span>
+                            <span class="cell-content block">${event.email}</span>
+                            <span class="cell-content block">Município: ${event.cidade}</span>
+                        `;
+                    } else { // 'travel'
+                        classes += ' cell-booked-travel';
+                        content = `<span class="cell-content">${event.reason}</span>`;
+                    }
+                }
+                // 1.1 Verifica se é feriado/ponto facultativo
+                else if (isHoliday(dateString)) {
+                    classes += ' cell-holiday';
+                    content = `<span class="cell-content text-xs font-semibold">${HOLIDAYS[dateString]}</span>`;
+                }
+                // 2. Verifica se é fim de semana
+                else if (isWeekend) {
+                    classes += ' cell-weekend';
+                }
+                // 3. Bloqueia todas as segundas-feiras
+                else if (isBlockedMonday) {
+                    classes += ' cell-blocked-monday';
+                    content = '<span class="cell-content text-xs">Bloqueado</span>';
+                }
+                // 4. Verifica se está fora do período de planejamento
+                else if (date < PERIODO_INICIO || date > PERIODO_FIM) {
+                    classes += ' cell-disabled';
+                }
+                // 5. Verifica a regra dos 20 dias de antecedência
+                else if (date < MIN_BOOKING_DATE) {
+                    classes += ' cell-disabled';
+                    content = '<span class="cell-content text-xs text-gray-400">Prazo de 20 dias</span>';
+                }
+                // 6. Se passou tudo, é um dia disponível
+                else {
+                    classes += ' cell-available';
+                    isClickable = true;
+                    if (selectedDates.has(dateString)) {
+                        classes += ' cell-selected'; // Marca se já estiver selecionado
+                    }
+                }
+
+                // Monta o HTML da célula
+                cell.className = classes;
+                cell.dataset.date = dateString;
+                cell.innerHTML = `<div class="date-number">${date.getUTCDate()}</div>${content}`;
+
+                // Adiciona o evento de clique
+                if (isClickable) {
+                    cell.addEventListener('click', () => toggleDateSelection(dateString));
+                }
+
+                return cell;
+            }
+
+            function updateNavButtons() {
+                // Desabilita "Anterior" se o mês atual for Janeiro 2026
+                prevMonthBtn.disabled = currentViewDate.getUTCMonth() === PERIODO_INICIO.getUTCMonth() &&
+                                        currentViewDate.getUTCFullYear() === PERIODO_INICIO.getUTCFullYear();
+                
+                // Desabilita "Próximo" se o mês atual for Maio 2026
+                nextMonthBtn.disabled = currentViewDate.getUTCMonth() === PERIODO_FIM.getUTCMonth() &&
+                                        currentViewDate.getUTCFullYear() === PERIODO_FIM.getUTCFullYear();
+            }
+
+            function changeMonth(offset) {
+                currentViewDate.setUTCMonth(currentViewDate.getUTCMonth() + offset);
+                renderCalendar();
+            }
+
+
+            // --- LÓGICA DE SELEÇÃO E AGENDAMENTO ---
+
+            // Verifica se uma data é consecutiva ao bloco de datas selecionadas (apenas dias úteis)
+            function isConsecutiveToSelection(dateString) {
+                if (selectedDates.size === 0) return true; // Primeira seleção sempre permitida
+                
+                const clickedDate = parseDateISO(dateString);
+                const clickedDayOfWeek = clickedDate.getUTCDay();
+                
+                // Não permite selecionar fins de semana
+                if (clickedDayOfWeek === 0 || clickedDayOfWeek === 6) return false;
+                
+                // Converte todas as datas selecionadas para objetos Date
+                const selectedDateObjects = Array.from(selectedDates).map(parseDateISO);
+                
+                // Encontra a data mínima e máxima do bloco selecionado
+                const minSelected = new Date(Math.min(...selectedDateObjects));
+                const maxSelected = new Date(Math.max(...selectedDateObjects));
+                
+                // Verifica se o dia clicado é imediatamente antes ou depois do bloco
+                const dayBefore = addDays(minSelected, -1);
+                const dayAfter = addDays(maxSelected, 1);
+                
+                // Verifica se é o dia anterior (mas pula fins de semana)
+                let dayBeforeCheck = new Date(dayBefore);
+                while (dayBeforeCheck.getUTCDay() === 0 || dayBeforeCheck.getUTCDay() === 6 || isHoliday(formatDateISO(dayBeforeCheck))) {
+                    dayBeforeCheck = addDays(dayBeforeCheck, -1);
+                }
+                
+                // Verifica se é o dia posterior (mas pula fins de semana)
+                let dayAfterCheck = new Date(dayAfter);
+                while (dayAfterCheck.getUTCDay() === 0 || dayAfterCheck.getUTCDay() === 6 || isHoliday(formatDateISO(dayAfterCheck))) {
+                    dayAfterCheck = addDays(dayAfterCheck, 1);
+                }
+                
+                const clickedDateISO = formatDateISO(clickedDate);
+                const dayBeforeISO = formatDateISO(dayBeforeCheck);
+                const dayAfterISO = formatDateISO(dayAfterCheck);
+                
+                // Permite se for o dia imediatamente antes ou depois (considerando apenas dias úteis)
+                return clickedDateISO === dayBeforeISO || clickedDateISO === dayAfterISO;
+            }
+
+            // Verifica se uma data está nas extremidades do bloco selecionado (pode ser desmarcada)
+            function isAtEdgeOfSelection(dateString) {
+                if (selectedDates.size <= 1) return true; // Se tem 1 ou menos, pode desmarcar
+                
+                const clickedDate = parseDateISO(dateString);
+                const selectedDateObjects = Array.from(selectedDates).map(parseDateISO);
+                
+                // Encontra a data mínima e máxima do bloco selecionado
+                const minSelected = new Date(Math.min(...selectedDateObjects));
+                const maxSelected = new Date(Math.max(...selectedDateObjects));
+                
+                const clickedDateISO = formatDateISO(clickedDate);
+                const minISO = formatDateISO(minSelected);
+                const maxISO = formatDateISO(maxSelected);
+                
+                // Só pode desmarcar se for o primeiro ou o último dia do bloco
+                return clickedDateISO === minISO || clickedDateISO === maxISO;
+            }
+
+            function toggleDateSelection(dateString) {
+                const cell = document.querySelector(`[data-date="${dateString}"]`);
+                
+                // Se está desmarcando, verifica se está nas extremidades
+                if (selectedDates.has(dateString)) {
+                    if (!isAtEdgeOfSelection(dateString)) {
+                        showMessage('error', 'Seleção Inválida', 'Você só pode desmarcar dias das extremidades (primeiro ou último dia selecionado). Desmarque das pontas primeiro.');
+                        return;
+                    }
+                    selectedDates.delete(dateString);
+                    cell.classList.remove('cell-selected');
+                    updateBookingControls();
+                    return;
+                }
+                
+                // Se está marcando, verifica se é consecutivo
+                if (!isConsecutiveToSelection(dateString)) {
+                    showMessage('error', 'Seleção Inválida', 'Você só pode selecionar dias consecutivos (um dia acima ou abaixo do bloco selecionado).');
+                    return;
+                }
+                
+                // Se passou na validação, adiciona a seleção
+                selectedDates.add(dateString);
+                cell.classList.add('cell-selected');
+                updateBookingControls();
+            }
+
+            function clearSelection() {
+                selectedDates.forEach(dateString => {
+                    document.querySelector(`[data-date="${dateString}"]`)?.classList.remove('cell-selected');
+                });
+                selectedDates.clear();
+                updateBookingControls();
+            }
+
+            function updateBookingControls() {
+                const count = selectedDates.size;
+                if (count > 0) {
+                    selectedCountEl.textContent = `${count} dia(s) selecionado(s)`;
+                    bookingControls.classList.remove('hidden');
+                } else {
+                    bookingControls.classList.add('hidden');
+                }
+            }
+
+            function openModal() {
+                if (selectedDates.size === 0) return;
+
+                // Ordena as datas e exibe no modal
+                const sortedDates = Array.from(selectedDates).sort();
+                const formattedDates = sortedDates.map(ds => formatDateBR(parseDateISO(ds))).join(', ');
+                datesToBookEl.textContent = formattedDates;
+
+                // Limpa o formulário
+                bookingForm.reset();
+                
+                // Abre o modal
+                bookingModal.showModal();
+            }
+
+            async function handleFormSubmit(e) {
+                e.preventDefault();
+                
+                const formData = new FormData(bookingForm);
+                const solicitante = formData.get('solicitante').trim();
+                const email = formData.get('email').trim();
+                const urs = formData.get('urs');
+                const cidade = formData.get('cidade').trim();
+                const observacoes = formData.get('observacoes').trim();
+
+                // Validação (redundante com 'required' mas boa prática)
+                if (!solicitante || !email || !urs || !cidade) {
+                    showMessage('error', 'Campos Obrigatórios', 'Preencha Nome, E-mail, URS e Cidade.');
+                    return;
+                }
+
+                // Converte as datas de string para Date object
+                const dateObjects = Array.from(selectedDates).map(parseDateISO);
+
+                // Encontra a data de início e fim do BLOCO de evento
+                const minDate = new Date(Math.min(...dateObjects));
+                const maxDate = new Date(Math.max(...dateObjects));
+
+                // Calcula os dias de deslocamento
+                const travelDayBefore = addDays(minDate, -1);
+                const travelDayAfter = addDays(maxDate, 1);
+
+                // --- VALIDAÇÃO DAS REGRAS DE BLOQUEIO ---
+                
+                // 1. Verifica se os dias de deslocamento são válidos (não-fim de semana e não-agendados)
+                if (!isDateAvailableForBooking(travelDayBefore, { allowWeekend: true })) {
+                    showMessage('error', 'Conflito de Agendamento', `O dia anterior (${formatDateBR(travelDayBefore)}) não está disponível para deslocamento.`);
+                    return;
+                }
+                if (!isDateAvailableForBooking(travelDayAfter, { allowWeekend: true })) {
+                    showMessage('error', 'Conflito de Agendamento', `O dia posterior (${formatDateBR(travelDayAfter)}) não está disponível para deslocamento.`);
+                    return;
+                }
+                
+                // 2. Valida dias consecutivos (regra de mesma cidade)
+                // Se houver mais de um dia, eles devem ser consecutivos.
+                // Esta lógica verifica se há "buracos" na seleção.
+                let currentDate = new Date(minDate.getTime());
+                let expectedSelectedCount = 0;
+                while (currentDate <= maxDate) {
+                    const currentDayISO = formatDateISO(currentDate);
+                    if (
+                        currentDate.getUTCDay() !== 0 &&
+                        currentDate.getUTCDay() !== 6 &&
+                        !isHoliday(currentDayISO)
+                    ) { // Pula fins de semana e feriados
+                        expectedSelectedCount++;
+                    }
+                    currentDate = addDays(currentDate, 1);
+                }
+
+                if (selectedDates.size !== expectedSelectedCount) {
+                     showMessage('error', 'Seleção Inválida', 'Os dias de evento devem ser consecutivos (sem pular dias úteis).');
+                     return;
+                }
+
+                // --- SUCESSO NA VALIDAÇÃO ---
+
+                try {
+                    await saveBookingToDatabase({
+                        solicitante,
+                        email,
+                        urs,
+                        cidade,
+                        observacoes,
+                        selectedDates
+                    });
+
+                    // Limpa a seleção e fecha o modal
+                    clearSelection();
+                    bookingModal.close();
+
+                    // Recarrega eventos do banco e atualiza o calendário
+                    await loadEventsFromDatabase();
+                    renderCalendar();
+
+                    // Exibe mensagem de sucesso
+                    showMessage('success', 'Agendamento Registrado!', 'Sua solicitação foi registrada. A agenda foi atualizada.');
+                } catch (err) {
+                    showMessage('error', 'Erro ao salvar', err.message || 'Falha ao salvar no banco.');
+                }
+            }
+
+            // --- PERSISTÊNCIA (Supabase) ---
+            async function loadEventsFromDatabase() {
+                const { data, error } = await supabase
+                    .from('events')
+                    .select('*')
+                    .gte('date', formatDateISO(PERIODO_INICIO))
+                    .lte('date', formatDateISO(PERIODO_FIM));
+                if (error) {
+                    showMessage('error', 'Erro ao carregar eventos', error.message || 'Falha ao consultar o banco.');
+                    return;
+                }
+                events = {};
+                (data || []).forEach(row => {
+                    const dateKey = typeof row.date === 'string' ? row.date : formatDateISO(new Date(row.date));
+                    if (row.type === 'travel') {
+                        events[dateKey] = { type: 'travel', reason: row.reason || 'Deslocamento' };
+                    } else {
+                        events[dateKey] = {
+                            type: 'event',
+                            solicitante: row.solicitante || '',
+                            email: row.email || '',
+                            urs: row.urs || '',
+                            cidade: row.cidade || '',
+                            observacoes: row.observacoes || ''
+                        };
+                    }
+                });
+            }
+
+            async function saveBookingToDatabase({ solicitante, email, urs, cidade, observacoes, selectedDates }) {
+                // Monta linhas a inserir (eventos + dias de deslocamento)
+                const dateObjects = Array.from(selectedDates).map(parseDateISO);
+                const minDate = new Date(Math.min(...dateObjects));
+                const maxDate = new Date(Math.max(...dateObjects));
+                const travelDayBefore = addDays(minDate, -1);
+                const travelDayAfter = addDays(maxDate, 1);
+
+                const rows = [];
+                selectedDates.forEach(dateString => {
+                    rows.push({
+                        date: dateString,
+                        type: 'event',
+                        solicitante,
+                        email,
+                        urs,
+                        cidade,
+                        observacoes
+                    });
+                });
+                rows.push({
+                    date: formatDateISO(travelDayBefore),
+                    type: 'travel',
+                    reason: 'Deslocamento',
+                    email,
+                    solicitante,
+                    urs,
+                    cidade
+                });
+                rows.push({
+                    date: formatDateISO(travelDayAfter),
+                    type: 'travel',
+                    reason: 'Deslocamento',
+                    email,
+                    solicitante,
+                    urs,
+                    cidade
+                });
+
+                const { error } = await supabase.from('events').insert(rows);
+                if (error) {
+                    throw new Error(error.message || 'Falha ao salvar agendamento.');
+                }
+            }
+
+            // Verifica se uma data está livre (nem fim de semana, nem agendada)
+            function isDateAvailableForBooking(date, { allowWeekend = false } = {}) {
+                const dayOfWeek = date.getUTCDay();
+                if (!allowWeekend && (dayOfWeek === 0 || dayOfWeek === 6)) return false; // é fim de semana
+
+                const dateString = formatDateISO(date);
+                if (isHoliday(dateString)) return false;
+                if (events[dateString]) return false; // já está agendado
+                
+                return true;
+            }
+
+
+            // --- INICIALIZAÇÃO ---
+            async function init() {
+                // Popula a lista de URS
+                populateURS();
+
+                // Adiciona listeners de navegação
+                prevMonthBtn.addEventListener('click', () => changeMonth(-1));
+                nextMonthBtn.addEventListener('click', () => changeMonth(1));
+
+                // Adiciona listeners do modal e formulário
+                openBookingModalBtn.addEventListener('click', openModal);
+                cancelBookingBtn.addEventListener('click', () => bookingModal.close());
+                clearSelectionBtn.addEventListener('click', clearSelection);
+                bookingForm.addEventListener('submit', handleFormSubmit);
+                
+                // Limpa mensagens do modal quando ele é fechado
+                bookingModal.addEventListener('close', () => {
+                    document.getElementById('modal-message-container').innerHTML = '';
+                });
+
+                // Carrega eventos do banco e renderiza o calendário inicial
+                await loadEventsFromDatabase();
+                renderCalendar();
+            }
+
+            init();
+        });
+    </script>
+</body>
+</html>
+
