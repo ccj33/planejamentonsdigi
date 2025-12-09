@@ -351,7 +351,7 @@
 
             // Período de planejamento (conforme prompt)
             const PERIODO_INICIO = new Date('2026-01-19T12:00:00Z');
-            const PERIODO_FIM = new Date('2026-05-08T12:00:00Z');
+            const PERIODO_FIM = new Date('2026-05-30T12:00:00Z');
             
             // Regra dos 20 dias de antecedência
             const MIN_ANTECEDENCIA_DIAS = 20;
@@ -390,6 +390,20 @@
                 '2026-05-01': 'Dia do Trabalhador (feriado nacional)'
             };
             const HOLIDAY_SET = new Set(Object.keys(HOLIDAYS));
+            // Bloqueios customizáveis (ex.: janela de planejamento em maio)
+            const CUSTOM_BLOCKED_RANGES = [
+                {
+                    start: '2026-05-12',
+                    end: '2026-05-30',
+                    reason: 'Bloqueado'
+                },
+                {
+                    start: '2026-01-01',
+                    end: '2026-01-31',
+                    reason: 'Bloqueado'
+                }
+            ];
+            let customBlockedMap = new Map();
 
             // --- ESTADO DA APLICAÇÃO ---
             let currentViewDate = new Date(PERIODO_INICIO.getTime()); // Data para controlar mês/ano visível
@@ -434,6 +448,31 @@
             function parseDateISO(dateString) {
                 const [year, month, day] = dateString.split('-').map(Number);
                 return new Date(Date.UTC(year, month - 1, day, 12)); // 12:00 UTC
+            }
+
+            // Expande os bloqueios customizados em um mapa de datas -> motivo
+            function buildCustomBlockedMap() {
+                customBlockedMap = new Map();
+                CUSTOM_BLOCKED_RANGES.forEach(range => {
+                    const startDate = parseDateISO(range.start);
+                    const endDate = parseDateISO(range.end);
+                    let cursor = new Date(startDate);
+                    while (cursor <= endDate) {
+                        customBlockedMap.set(
+                            formatDateISO(cursor),
+                            range.reason || 'Bloqueado'
+                        );
+                        cursor = addDays(cursor, 1);
+                    }
+                });
+            }
+
+            function isCustomBlocked(dateString) {
+                return customBlockedMap.has(dateString);
+            }
+
+            function getCustomBlockReason(dateString) {
+                return customBlockedMap.get(dateString);
             }
 
             // Popula a lista de URS no formulário
@@ -570,6 +609,11 @@
                     classes += ' cell-holiday';
                     content = `<span class="cell-content text-xs font-semibold">${HOLIDAYS[dateString]}</span>`;
                 }
+                // 1.2 Bloqueios customizados (faixas editáveis)
+                else if (isCustomBlocked(dateString)) {
+                    classes += ' cell-blocked-monday';
+                    content = `<span class="cell-content text-xs">${getCustomBlockReason(dateString)}</span>`;
+                }
                 // 2. Verifica se é fim de semana
                 else if (isWeekend) {
                     classes += ' cell-weekend';
@@ -651,13 +695,23 @@
                 
                 // Verifica se é o dia anterior (mas pula fins de semana)
                 let dayBeforeCheck = new Date(dayBefore);
-                while (dayBeforeCheck.getUTCDay() === 0 || dayBeforeCheck.getUTCDay() === 6 || isHoliday(formatDateISO(dayBeforeCheck))) {
+                while (
+                    dayBeforeCheck.getUTCDay() === 0 ||
+                    dayBeforeCheck.getUTCDay() === 6 ||
+                    isHoliday(formatDateISO(dayBeforeCheck)) ||
+                    isCustomBlocked(formatDateISO(dayBeforeCheck))
+                ) {
                     dayBeforeCheck = addDays(dayBeforeCheck, -1);
                 }
                 
                 // Verifica se é o dia posterior (mas pula fins de semana)
                 let dayAfterCheck = new Date(dayAfter);
-                while (dayAfterCheck.getUTCDay() === 0 || dayAfterCheck.getUTCDay() === 6 || isHoliday(formatDateISO(dayAfterCheck))) {
+                while (
+                    dayAfterCheck.getUTCDay() === 0 ||
+                    dayAfterCheck.getUTCDay() === 6 ||
+                    isHoliday(formatDateISO(dayAfterCheck)) ||
+                    isCustomBlocked(formatDateISO(dayAfterCheck))
+                ) {
                     dayAfterCheck = addDays(dayAfterCheck, 1);
                 }
                 
@@ -797,7 +851,8 @@
                     if (
                         currentDate.getUTCDay() !== 0 &&
                         currentDate.getUTCDay() !== 6 &&
-                        !isHoliday(currentDayISO)
+                        !isHoliday(currentDayISO) &&
+                        !isCustomBlocked(currentDayISO)
                     ) { // Pula fins de semana e feriados
                         expectedSelectedCount++;
                     }
@@ -917,6 +972,7 @@
 
                 const dateString = formatDateISO(date);
                 if (isHoliday(dateString)) return false;
+                if (isCustomBlocked(dateString)) return false;
                 if (events[dateString]) return false; // já está agendado
                 
                 return true;
@@ -944,6 +1000,7 @@
                 });
 
                 // Carrega eventos do banco e renderiza o calendário inicial
+                buildCustomBlockedMap();
                 await loadEventsFromDatabase();
                 renderCalendar();
             }
